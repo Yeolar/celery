@@ -43,8 +43,9 @@ int, str, or an iterable type. {type!r} was given.\
 """
 
 CRON_REPR = """\
-<crontab: {0._orig_minute} {0._orig_hour} {0._orig_day_of_week} \
-{0._orig_day_of_month} {0._orig_month_of_year} (m/h/d/dM/MY)>\
+<crontab: {0._orig_second} {0._orig_minute} {0._orig_hour} \
+{0._orig_day_of_week} {0._orig_day_of_month} {0._orig_month_of_year} \
+(s/m/h/d/dM/MY)>\
 """
 
 
@@ -295,8 +296,16 @@ class crontab(schedule):
     implementation of cron's features, so it should provide a fair
     degree of scheduling needs.
 
-    You can specify a minute, an hour, a day of the week, a day of the
-    month, and/or a month in the year in any of the following formats:
+    You can specify a second, a minute, an hour, a day of the week,
+    a day of the month, and/or a month in the year in any of
+    the following formats:
+
+    .. attribute:: second
+
+        - A (list of) integers from 0-59 that represent the seconds of
+          a minute of when execution should occur; or
+        - A string representing a crontab pattern.  This may get pretty
+          advanced, like `second='*/5'` or `second='1,13,30-45,50-59/2'`.
 
     .. attribute:: minute
 
@@ -362,8 +371,9 @@ class crontab(schedule):
 
     """
 
-    def __init__(self, minute='*', hour='*', day_of_week='*',
+    def __init__(self, second='*', minute='*', hour='*', day_of_week='*',
                  day_of_month='*', month_of_year='*', nowfun=None, app=None):
+        self._orig_second = cronfield(second)
         self._orig_minute = cronfield(minute)
         self._orig_hour = cronfield(hour)
         self._orig_day_of_week = cronfield(day_of_week)
@@ -420,7 +430,7 @@ class crontab(schedule):
                     min=min_, max=max_ - 1 + min_, value=number))
         return result
 
-    def _delta_to_next(self, last_run_at, next_hour, next_minute):
+    def _delta_to_next(self, last_run_at, next_hour, next_minute, next_second):
         """
         Takes a datetime of last run, next minute and hour, and
         returns a relativedelta for the next scheduled day and time.
@@ -483,7 +493,7 @@ class crontab(schedule):
                     day=days_of_month[datedata.dom],
                     hour=next_hour,
                     minute=next_minute,
-                    second=0,
+                    second=next_second,
                     microsecond=0)
 
     def now(self):
@@ -493,7 +503,8 @@ class crontab(schedule):
         return CRON_REPR.format(self)
 
     def __reduce__(self):
-        return (self.__class__, (self._orig_minute,
+        return (self.__class__, (self._orig_second,
+                                 self._orig_minute,
                                  self._orig_hour,
                                  self._orig_day_of_week,
                                  self._orig_day_of_month,
@@ -516,38 +527,56 @@ class crontab(schedule):
                              last_run_at.hour in self.hour and
                              last_run_at.minute < max(self.minute))
 
-        if execute_this_hour:
-            next_minute = min(minute for minute in self.minute
-                              if minute > last_run_at.minute)
-            delta = ffwd(minute=next_minute, second=0, microsecond=0)
+        execute_this_minute = (execute_this_date and
+                               last_run_at.day == now.day and
+                               last_run_at.month == now.month and
+                               last_run_at.year == now.year and
+                               last_run_at.hour in self.hour and
+                               last_run_at.minute in self.minute and
+                               last_run_at.second < max(self.second))
+
+        if execute_this_minute:
+            next_second = min(second for second in self.second
+                              if second > last_run_at.second)
+            delta = ffwd(second=next_second, microsecond=0)
         else:
-            next_minute = min(self.minute)
-            execute_today = (execute_this_date and
-                             last_run_at.hour < max(self.hour))
+            next_second = min(self.second)
 
-            if execute_today:
-                next_hour = min(hour for hour in self.hour
-                                if hour > last_run_at.hour)
-                delta = ffwd(hour=next_hour, minute=next_minute,
-                             second=0, microsecond=0)
+            if execute_this_hour:
+                next_minute = min(minute for minute in self.minute
+                                  if minute > last_run_at.minute)
+                delta = ffwd(minute=next_minute,
+                             second=next_second, microsecond=0)
             else:
-                next_hour = min(self.hour)
-                all_dom_moy = (self._orig_day_of_month == '*' and
-                               self._orig_month_of_year == '*')
-                if all_dom_moy:
-                    next_day = min([day for day in self.day_of_week
-                                    if day > dow_num] or self.day_of_week)
-                    add_week = next_day == dow_num
+                next_minute = min(self.minute)
+                execute_today = (execute_this_date and
+                                 last_run_at.hour < max(self.hour))
 
-                    delta = ffwd(weeks=add_week and 1 or 0,
-                                 weekday=(next_day - 1) % 7,
-                                 hour=next_hour,
-                                 minute=next_minute,
-                                 second=0,
-                                 microsecond=0)
+                if execute_today:
+                    next_hour = min(hour for hour in self.hour
+                                    if hour > last_run_at.hour)
+                    delta = ffwd(hour=next_hour, minute=next_minute,
+                                 second=next_second, microsecond=0)
                 else:
-                    delta = self._delta_to_next(last_run_at,
-                                                next_hour, next_minute)
+                    next_hour = min(self.hour)
+                    all_dom_moy = (self._orig_day_of_month == '*' and
+                                   self._orig_month_of_year == '*')
+                    if all_dom_moy:
+                        next_day = min([day for day in self.day_of_week
+                                        if day > dow_num] or self.day_of_week)
+                        add_week = next_day == dow_num
+
+                        delta = ffwd(weeks=add_week and 1 or 0,
+                                     weekday=(next_day - 1) % 7,
+                                     hour=next_hour,
+                                     minute=next_minute,
+                                     second=next_second,
+                                     microsecond=0)
+                    else:
+                        delta = self._delta_to_next(last_run_at,
+                                                    next_hour,
+                                                    next_minute,
+                                                    next_second)
         return self.to_local(last_run_at), delta, self.to_local(now)
 
     def remaining_estimate(self, last_run_at, ffwd=ffwd):
@@ -575,7 +604,8 @@ class crontab(schedule):
                     other.day_of_month == self.day_of_month and
                     other.day_of_week == self.day_of_week and
                     other.hour == self.hour and
-                    other.minute == self.minute)
+                    other.minute == self.minute and
+                    other.second == self.second)
         return NotImplemented
 
     def __ne__(self, other):

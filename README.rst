@@ -2,6 +2,8 @@
  celery - Distributed Task Queue
 =================================
 
+branch: sec_crontab based on v3.1.20, support second crontab.
+
 .. image:: http://cloud.github.com/downloads/celery/celery/celery_128.png
 
 :Version: 3.1.20 (Cipater)

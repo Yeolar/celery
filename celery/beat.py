@@ -191,7 +191,7 @@ class Scheduler(object):
             if 'celery.backend_cleanup' not in data:
                 entries['celery.backend_cleanup'] = {
                     'task': 'celery.backend_cleanup',
-                    'schedule': crontab('0', '4', '*'),
+                    'schedule': crontab('0', '0', '4', '*'),
                     'options': {'expires': 12 * 3600}}
         self.update_from_dict(entries)
 
